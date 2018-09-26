@@ -1,9 +1,9 @@
 --[[
-Bundle API by TetraSource
+Bundle by TetraSource
 version v1.0
 
-Merges multiple file systems that are attached to one computer or server
-into a virtual one.
+This rc application merges multiple file systems that are attached to one
+computer or server into a virtual one.
 
 dependencies:
  none
