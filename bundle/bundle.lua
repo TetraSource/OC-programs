@@ -15,8 +15,8 @@ dependencies:
 
 -- adapts this to your hardware, OC configuration and OS.
 
--- Set this to true if you're running the script on a machine with
--- case insensitive file system, e.g. the one of a windows machine.
+-- Set this to true if the operating system you're playing the game in
+-- uses a case insensitive file system, as it's the case with a Windows.
 local CASE_INSENSITIVE = true
 
 -- The maximal length of a string to be written or read from this file system.
