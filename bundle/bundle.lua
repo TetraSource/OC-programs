@@ -2,8 +2,8 @@
 Bundle by TetraSource
 version v1.0
 
-This rc application merges multiple file systems that are attached to one
-computer or server into a virtual one.
+This rc script merges multiple file systems that
+are attached to one computer into a virtual one.
 
 dependencies:
  none

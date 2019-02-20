@@ -2,6 +2,8 @@
 --[[
 moon API by TetraSource
 
+Adds OOP to OC Lua, based on python's OOP.
+
 dependencies: none
 ]]--
 
