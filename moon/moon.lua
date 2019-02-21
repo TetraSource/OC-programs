@@ -18,9 +18,9 @@ local moon = {
 -- for backward compatibility with Lua 5.2
 local unpack = unpack or table.unpack
 
-----------------------
--- linearizion algo --
-----------------------
+------------------------
+-- linearization algo --
+------------------------
 
 local function revert(list)
 	local j, cpy = 1, {}
@@ -199,6 +199,16 @@ end
 -- classes --
 -------------
 
+local function namespaceGet(obj, idx)
+	if rawget(obj, "__mro") then
+		-- check namespace of class and its bases
+		return lookup(obj.__mro, idx)
+	else
+		-- check namespace of object
+		return obj.__table[idx]
+	end
+end
+
 local function getfield(obj, idx, descriptor)
 	if descriptor and type(descriptor) == "table" and
 		type(descriptor.__get) == "function" then
@@ -210,14 +220,7 @@ local function getfield(obj, idx, descriptor)
 		end
 	end
 
-	local field
-	if rawget(obj, "__mro") then
-		-- check namespace of class and its bases
-		field = lookup(obj.__mro, idx)
-	else
-		-- check namespace of object
-		field = obj.__table[idx]
-	end
+	local field = namespaceGet(obj, name)
 	if field == nil then
 		field = descriptor
 	end
@@ -243,22 +246,15 @@ local function setfield(obj, idx, val, descriptor)
 		return
 	end
 
-	local field
-	if rawget(obj, "__mro") then
-		-- Contains the class or its bases an item?
-		field = lookup(obj.__mro, idx)
-	else
-		-- Contains the object an item?
-		field = obj.__table[idx]
+	if namespaceGet(obj, idx) ~= nil then
+		return
 	end
 
-	if field == nil then
-		field = lookup(obj.__class.__mro, "__newindex")
-		if type(field) == "function" then
-			-- call __newindex
-			field(obj, idx, val)
-			return
-		end
+	local field = lookup(obj.__class.__mro, "__newindex")
+	if type(field) == "function" then
+		-- call __newindex
+		field(obj, idx, val)
+		return
 	end
 
 	-- default
@@ -431,14 +427,14 @@ function moon.isinstance(inst, cls)
 	return issubclass(inst.__class, cls)
 end
 
-function moon.rawget(obj, name)
+function moon.rawget(obj, idx)
 	checkArg(1, obj, "table")
-	return obj.__table[name]
+	return namespaceGet(obj, idx)
 end
 
-function moon.rawset(obj, name, val)
+function moon.rawset(obj, idx, val)
 	checkArg(1, obj, "table")
-	obj.__table[name] = val
+	obj.__table[idx] = val
 end
 
 function moon.classmethod(method)
