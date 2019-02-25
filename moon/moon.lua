@@ -213,11 +213,7 @@ local function getfield(obj, idx, descriptor)
 	if descriptor and type(descriptor) == "table" and
 		type(descriptor.__get) == "function" then
 		-- call data descriptor
-		if rawget(obj, "__mro") then
-			return descriptor:__get(nil, obj)
-		else
-			return descriptor:__get(obj, obj.__class)
-		end
+		return descriptor:__get(obj)
 	end
 
 	local field = namespaceGet(obj, name)
@@ -313,6 +309,7 @@ moon.Object = Class("Object", {}, {
 
 	__setfield = Class.__setfield;
 
+	-- classmethod
 	__new = function(cls)
 		return setmetatable({
 			__class = cls,
@@ -366,7 +363,6 @@ moon.Super = Class("Super", {}, {
 		self.__table = obj.__table
 	end;
 })
-moon.super = moon.Super
 
 moon.Property = Class("Property", {moon.Object}, {
 	__init = function(self, fget, fset)
@@ -378,15 +374,17 @@ moon.Property = Class("Property", {moon.Object}, {
 		self.fget = fget
 	end;
 
-	__get = function(self, obj, owner)
+	__get = function(self, obj)
 		return self.fget(obj)
 	end;
 
 	__set = function(self, obj, val)
+		if not self.fset then
+			error("can't set attribute", 2)
+		end
 		self.fset(obj, val)
 	end;
 })
-moon.property = moon.Property
 
 ---------
 -- API --
@@ -405,6 +403,12 @@ function moon.class(name, ...)
 	bases[1] = bases[1] or moon.Object
 
 	return cls(name, bases, cls:__prepare(name, bases))
+end
+
+function moon.super(cls, obj)
+	checkArg(1, cls, "table")
+	checkArg(2, obj, "table")
+	return Super(cls, obj)
 end
 
 function moon.issubclass(cls1, cls2)
