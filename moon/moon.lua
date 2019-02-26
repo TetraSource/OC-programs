@@ -129,12 +129,9 @@ local defaults = {
 		error("attempt to call a table value", 2)
 	end,
 	__tostring = function(self)
-		local name = rawget(self, "__name")
-		if name then
-			name = (" name: '%s'"):format(name)
-		end
 		return ("<%s type: '%s'%s>"):format(
-			tostring(self.__table), self.__class.__name, name or "")
+			tostring(self.__table), self.__class.__name,
+			self.__mro and (" name: '%s'"):format(self.__name) or "")
 	end,
 	__len = function(self)
 		return #self.__table
@@ -444,7 +441,7 @@ end
 function moon.classmethod(method)
 	checkArg(1, method, "function")
 	return function(self, ...)
-		if not self.__name then
+		if not self.__mro then
 			-- self is object
 			self = self.__class
 		end
