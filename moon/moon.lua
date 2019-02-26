@@ -15,6 +15,21 @@ local moon = {
 	version = "v1.0"
 }
 
+local checkArg = checkArg or function(n, arg, ...)
+	arg = type(arg)
+	local i = 1
+	local t = select(1, ...)
+	while t do
+		if arg == t then
+			return
+		end
+		i = i+1
+		t = select(i, ...)
+	end
+	error(string.format("bad argument #%d, (%s expected, got %s)",
+	 n, select(1, ...), arg), 3)
+end
+
 -- for backward compatibility with Lua 5.2
 local unpack = unpack or table.unpack
 
@@ -129,9 +144,14 @@ local defaults = {
 		error("attempt to call a table value", 2)
 	end,
 	__tostring = function(self)
+		local name = rawget(self, "__name")
+		if name then
+			name = (" name: '%s'"):format(name)
+		else
+			name = ""
+		end
 		return ("<%s type: '%s'%s>"):format(
-			tostring(self.__table), self.__class.__name,
-			self.__mro and (" name: '%s'"):format(self.__name) or "")
+			tostring(self.__table), self.__class.__name, name)
 	end,
 	__len = function(self)
 		return #self.__table
@@ -213,7 +233,7 @@ local function getfield(obj, idx, descriptor)
 		return descriptor:__get(obj)
 	end
 
-	local field = namespaceGet(obj, name)
+	local field = namespaceGet(obj, idx)
 	if field == nil then
 		field = descriptor
 	end
@@ -239,72 +259,73 @@ local function setfield(obj, idx, val, descriptor)
 		return
 	end
 
-	if namespaceGet(obj, idx) ~= nil then
-		return
-	end
-
-	local field = lookup(obj.__class.__mro, "__newindex")
-	if type(field) == "function" then
-		-- call __newindex
-		field(obj, idx, val)
-		return
+	if namespaceGet(obj, idx) == nil then
+		local field = lookup(obj.__class.__mro, "__newindex")
+		if type(field) == "function" then
+			-- call __newindex
+			field(obj, idx, val)
+			return
+		end
 	end
 
 	-- default
 	obj.__table[idx] = val
 end
 
-local Class = {
-	__getfield = function(self, idx)
-		return getfield(self, idx, lookup(self.__class.__mro, idx))
-	end;
+do
+	local Class = {
+		__getfield = function(self, idx)
+			return getfield(self, idx, lookup(self.__class.__mro, idx))
+		end;
 
-	__setfield = function(self, idx, val)
-		setfield(self, idx, val, lookup(self.__class.__mro, idx))
-	end;
+		__setfield = function(self, idx, val)
+			setfield(self, idx, val, lookup(self.__class.__mro, idx))
+		end;
 
-	__new = function(self, name, bases, namespace)
-		checkArg(1, name, "string")
-		checkArg(2, bases, "table")
-		checkArg(3, namespace, "table")
+		__new = function(self, name, bases, namespace)
+			checkArg(1, name, "string")
+			checkArg(2, bases, "table")
+			checkArg(3, namespace, "table")
 
-		local cls = {
-			__class = self,
-			__name = name,
-			__table = namespace,
-			__bases = bases,
-			__mro = merge(bases),
-		}
-		if not cls.__mro then
+			local cls = {
+				__class = self,
+				__name = name,
+				__table = namespace,
+				__bases = bases,
+				__mro = merge(bases),
+			}
+			if not cls.__mro then
 error("Cannot create a consistent method resolution order (MRO) for bases", 3)
+			end
+			table.insert(cls.__mro, 1, cls)
+			return setmetatable(cls, getmetatable(self))
+		end;
+
+		__init = function(self)
+		end;
+
+		__call = function(self, ...)
+			local obj = self:__new(...)
+			self.__init(obj, ...)
+			return obj
+		end;
+
+		-- classmethod
+		__prepare = function(cls)
+			return {}
 		end
-		table.insert(cls.__mro, 1, cls)
-		return setmetatable(cls, getmetatable(self))
-	end;
+	}
 
-	__init = function(self)
-	end;
+	Class = Class:__call("Class", {}, Class)
+	rawset(Class, "__class", Class)
+	setmetatable(Class, metatable)
+	moon.Class = Class
+end
 
-	__call = function(self, ...)
-		local obj = self:__new(...)
-		self.__init(obj, ...)
-		return obj
-	end;
+moon.Object = moon.Class("Object", {}, {
+	__getfield = moon.Class.__getfield;
 
-	-- classmethod
-	__prepare = function(cls)
-		return {}
-	end
-}
-Class = Class:__call("Class", {}, Class)
-rawset(Class, "__class", Class)
-setmetatable(Class, metatable)
-moon.Class = Class
-
-moon.Object = Class("Object", {}, {
-	__getfield = Class.__getfield;
-
-	__setfield = Class.__setfield;
+	__setfield = moon.Class.__setfield;
 
 	-- classmethod
 	__new = function(cls)
@@ -328,7 +349,7 @@ local function superLookup(self, idx)
 	return nil
 end
 
-moon.Super = Class("Super", {}, {
+moon.Super = moon.Class("Super", {}, {
 	__getfield = function(self, idx)
 		return getfield(self.__native, idx, superLookup(self, idx))
 	end;
@@ -361,7 +382,7 @@ moon.Super = Class("Super", {}, {
 	end;
 })
 
-moon.Property = Class("Property", {moon.Object}, {
+moon.Property = moon.Class("Property", {moon.Object}, {
 	__init = function(self, fget, fset)
 		checkArg(1, fget, "function")
 		if fset ~= nil then
@@ -388,7 +409,7 @@ moon.Property = Class("Property", {moon.Object}, {
 ---------
 
 function moon.class(name, ...)
-	local arg, cls, bases = 1, Class, {...}
+	local arg, cls, bases = 1, moon.Class, {...}
 	if type(name) == "table" then
 		arg, cls, name = 2, name, table.remove(bases, 1)
 	end
@@ -405,7 +426,7 @@ end
 function moon.super(cls, obj)
 	checkArg(1, cls, "table")
 	checkArg(2, obj, "table")
-	return Super(cls, obj)
+	return moon.Super(cls, obj)
 end
 
 function moon.issubclass(cls1, cls2)
@@ -441,7 +462,7 @@ end
 function moon.classmethod(method)
 	checkArg(1, method, "function")
 	return function(self, ...)
-		if not self.__mro then
+		if not rawget(self, "__mro") then
 			-- self is object
 			self = self.__class
 		end
