@@ -439,39 +439,39 @@ function cmp.open(path, mode)
 		end
 
 		if not dir[name] then
+			-- Set new file
 			dir[name] = file
 		elseif mode == "w" then
-			if resetFiles then
-				-- Remove all files of the file in when opening it in write mode
-				-- as this would clear the entire file on a file system, too.
-				local blocked = false
-				for handle, hData in next, handles do
-					if hData.path:sub(1, #path) == path then
-						if hData.mode ~= "r" then
-							blocked = true
-						elseif hData.handle then
-							filesystems[data.index].close(hData.handle)
-						end
+			-- Remove all files of the file in when opening it in write mode
+			-- as this would clear the entire file on a file system, too.
+			local blocked = false
+			for handle, hData in next, handles do
+				if hData.path:sub(1, #path) == path then
+					if hData.mode ~= "r" then
+						blocked = true
+					elseif hData.handle then
+						filesystems[data.index].close(hData.handle)
 					end
 				end
-				if not blocked then
-					for i = file.from+1, file.to do
-						filesystems[i].remove(path)
-					end
-				end
-				for handle, hData in next, handles do
-					if hData.path:sub(1, #path) == path and hData.handle then
-						if blocked then
-							hData.handle = filesystems[data.index].open(hData.path, hData.m)
-							hData.seek(hData.handle, "set", hData.localPos)
-						elseif hData.mode == "r" then
-							hData.handle = nil
-						end
-					end
-				end
-				file.to = file.from
 			end
+			if not blocked then
+				for i = file.from+1, file.to do
+					filesystems[i].remove(path)
+				end
+			end
+			for handle, hData in next, handles do
+				if hData.path:sub(1, #path) == path and hData.handle then
+					if blocked then
+						hData.handle = filesystems[data.index].open(hData.path, hData.m)
+						hData.seek(hData.handle, "set", hData.localPos)
+					elseif hData.mode == "r" then
+						hData.handle = nil
+					end
+				end
+			end
+			file.to = file.from
 		else--if mode == "a" then
+			-- Seek to end of file
 			for i = data.file.from, data.file.to do
 				data.localPos = filesystems[i].size(path)
 				data.globalPos = data.globalPos + data.localPos
