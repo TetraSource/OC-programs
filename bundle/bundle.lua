@@ -34,6 +34,7 @@ local ADDRESS = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 ---------------
 
 local component = require("component")
+local unicode = require("unicode") or string
 
 local currIndex = 1
 local filesystems = {}
@@ -911,7 +912,7 @@ function start()
 			local name = CASE_INSENSITIVE and list[i]:lower() or list[i]
 			local currPath = path .. name
 			if proxy.isDirectory(currPath) then
-				name = name:sub(1, -2) -- remove trailing slash
+				name = unicode.sub(1, #name-1) -- remove trailing slash
 				struc[name] = addFilesystem(currPath, struc[name] or {})
 			else
 				if struc[name] then
