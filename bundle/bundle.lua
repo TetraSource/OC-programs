@@ -1,9 +1,9 @@
 --[[
-Bundle by TetraSource
-version v1.0
+Bundle API by TetraSource
+version v1.1
 
-This rc script merges multiple file systems that
-are attached to one computer into a virtual one.
+Merges multiple file systems that are attached to one computer or server
+into a virtual one.
 
 dependencies:
  none
@@ -15,8 +15,8 @@ dependencies:
 
 -- adapts this to your hardware, OC configuration and OS.
 
--- Set this to true if the operating system you're playing the game in
--- uses a case insensitive file system, as it's the case with a Windows.
+-- Set this to true if you're running the script on a machine with
+-- case insensitive file system, e.g. the one of a windows machine.
 local CASE_INSENSITIVE = true
 
 -- The maximal length of a string to be written or read from this file system.
@@ -34,7 +34,6 @@ local ADDRESS = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 ---------------
 
 local component = require("component")
-local unicode = require("unicode") or string
 
 local currIndex = 1
 local filesystems = {}
@@ -132,7 +131,7 @@ function cmp.size(path)
 
   local file, name
   path, file, name = findDir(path)
-  file = file and file[name] or nil
+  file = file and file[name]
   if not file or file.isFile ~= true then
     return 0
   end
@@ -250,15 +249,11 @@ function cmp.rename(oldPath, newPath)
     end
     oldPath = oldPath .. "/" .. oldName
     newPath = newPath .. "/" .. newName
-
-    local from, to = 1, #filesystems
-    if oldDir[oldName].isFile == true then
-      from, to = oldDir[oldName].from, oldDir[oldName].to
-    end
-    for i = from, to do
-      if filesystems[i].exists(oldPath) and
-       not filesystems[i].rename(oldPath, newPath) then
-        -- undo renaming
+	local from = oldDir[oldName].isFile == true and oldDir[oldName].from or 1
+	for i = from,
+	  oldDir[oldName].isFile == true and oldDir[oldName].to or #filesystems do
+	  if not filesystems[i].rename(oldPath, newPath) then
+		-- undo renaming
         for j = from, i-1 do
           filesystems[j].rename(newPath, oldPath)
         end
@@ -279,12 +274,9 @@ function cmp.remove(path)
   if not dir or name and not dir[name] then
     return false
   end
-
   local element = dir[name] or structure
-  local from, to = 1, #filesystems
-  if element.isFile == true then
-    from, to = element.from, element.to
-  end
+  local from = element.isFile == true and element.from or 1
+  local to = element.isFile == true and element.to or #filesystems
   path = name and path .. "/" .. name or ""
 
   for handle, data in next, handles do
@@ -293,8 +285,7 @@ function cmp.remove(path)
     end
   end
   for i = from, to do
-    if filesystems[i].exists(path) and
-     not filesystems[i].remove(path) then
+    if not filesystems[i].remove(path) then
       io.stderr:write("data is not entirely removed")
       return false
     end
@@ -443,34 +434,36 @@ function cmp.open(path, mode)
       -- Set new file
       dir[name] = file
     elseif mode == "w" then
-      -- Remove all files of the file in when opening it in write mode
-      -- as this would clear the entire file on a file system, too.
-      local blocked = false
-      for handle, hData in next, handles do
-        if hData.path:sub(1, #path) == path then
-          if hData.mode ~= "r" then
-            blocked = true
-          elseif hData.handle then
-            filesystems[data.index].close(hData.handle)
+      if resetFiles then
+        -- Remove all files of the file in when opening it in write mode
+        -- as this would clear the entire file on a file system, too.
+        local blocked = false
+        for handle, hData in next, handles do
+          if hData.path:sub(1, #path) == path then
+            if hData.mode ~= "r" then
+              blocked = true
+            elseif hData.handle then
+              filesystems[data.index].close(hData.handle)
+            end
           end
         end
-      end
-      if not blocked then
-        for i = file.from+1, file.to do
-          filesystems[i].remove(path)
-        end
-      end
-      for handle, hData in next, handles do
-        if hData.path:sub(1, #path) == path and hData.handle then
-          if blocked then
-            hData.handle = filesystems[data.index].open(hData.path, hData.m)
-            hData.seek(hData.handle, "set", hData.localPos)
-          elseif hData.mode == "r" then
-            hData.handle = nil
+        if not blocked then
+          for i = file.from+1, file.to do
+            filesystems[i].remove(path)
           end
         end
+        for handle, hData in next, handles do
+          if hData.path:sub(1, #path) == path and hData.handle then
+            if blocked then
+              hData.handle = filesystems[data.index].open(hData.path, hData.m)
+              hData.seek(hData.handle, "set", hData.localPos)
+            elseif hData.mode == "r" then
+              hData.handle = nil
+            end
+          end
+        end
+        file.to = file.from
       end
-      file.to = file.from
     else--if mode == "a" then
       -- Seek to end of file
       for i = data.file.from, data.file.to do
@@ -486,9 +479,8 @@ end
 local function writeValue(data, value, count)
   local limited = count ~= math.huge
   count = math.min(count, #value - data.start)
-  if limited or data.start > 0 then
-    value = value:sub(data.start+1, data.start + count)
-  end
+  value = (limited or data.start > 0) and
+   value:sub(data.start+1, data.start + count) or value
 
   if count > 0 then
     -- read data from the current file
@@ -612,7 +604,7 @@ function cmp.seek(handle, whence, offset)
   offset = math.floor(offset)
 
   local data = handles[handle]
-  if not data or not data.handle then
+  if not (data and data.handle) then
     return nil, "bad file descriptor"
   end
 
@@ -686,20 +678,17 @@ end
 function cmp.lastModified(path)
   checkArg(1, path, "string")
 
-  local element, name
-  path, element, name = findDir(path)
-  element = element and element[name] or nil
-  if not element then
+  local file, name
+  path, file, name = findDir(path)
+  file = file and file[name]
+  if not file then
     return 0
   end
   path = path .. "/" .. name
 
   local tstmp = 0
-  local from, to = 1, #filesystems
-  if element.isFile == true then
-    from, to = element.from, element.to
-  end
-  for i = from, to do
+  for i = file.isFile == true and file.to or 1,
+   file.isFile == true and file.from or #filesystems do
     tstmp = math.max(tstmp, filesystems[i].lastModified(path))
   end
   return tstmp
@@ -829,21 +818,57 @@ function add(address)
 end
 
 --[[
-Removes the last added filesystem from the bundle one as long as it causes no
-lose of data. If you want to remove it anyway pass true as second parameter.
+Removes either the specified filesystem or the last added filesystem
+from the bundle one as long as it causes no
+loss of data. If you want to remove it anyway pass true as second parameter.
 Note that the drive isn't wiped after removal.
+To remove the last added filesystem, pass . for the address.
 ]]--
-function remove(forcefully)
+function remove(address, forcefully)
   if not running then
     io.stderr:write("bundle isn't running\n")
     return
   end
   -- TODO: allow relocation of data from every filesystem.
 
-  local index = #filesystems
-  local fs = filesystems[index]
-  if #fs.list("") > 1 and not forcefully then
-    io.stderr:write("removing the filesystem causes the lose of data. Pass true as first parameter to remove it anyway")
+  -- Define error message here to avoid redundant messages.
+  local errMsg = "removing the filesystem causes the loss of data. Pass true as first parameter to remove it anyway"
+
+  local fs
+  if address == "." then
+    local index = #filesystems
+    fs = filesystems[index]
+    if #fs.list("") > 1 and not forcefully then
+      io.stderr:write(errMsg)
+      return
+    end
+  else
+    if address:len() == 8 then
+      -- Short address
+      for i=1, #filesystems do
+        if filesystems[i].address:sub(0, 8) == address then
+          fs = filesystems[i]
+          if fs.list("") > 1 and not forcefully then
+            io.stderr:write(errMsg)
+            return
+          end
+        end
+      end
+    else
+      for i=1, #filesystems do
+        if filesystems[i].address == address then
+          fs = filesystems[i]
+          if fs.list("") > 1 and not forcefully then
+            io.stderr:write(errMsg)
+            return
+          end
+        end
+      end
+    end
+  end
+
+  if fs == nil then
+    io.stderr:write("Specified filesystem '" .. address .. "' not found.")
     return
   end
 
@@ -912,7 +937,7 @@ function start()
       local name = CASE_INSENSITIVE and list[i]:lower() or list[i]
       local currPath = path .. name
       if proxy.isDirectory(currPath) then
-        name = unicode.sub(1, #name-1) -- remove trailing slash
+        name = name:sub(1, -2) -- remove trailing slash
         struc[name] = addFilesystem(currPath, struc[name] or {})
       else
         if struc[name] then
